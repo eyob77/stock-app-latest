@@ -1,98 +1,150 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import React, { useState, useCallback } from 'react';
+import { View, Text, FlatList, TextInput, StyleSheet, Pressable } from 'react-native';
+import { useFocusEffect, useRouter } from 'expo-router';
+import db from '../../database/db';
+import { StationeryItem } from '../../database/schema';
+import { Ionicons } from '@expo/vector-icons';
+import { ScreenWrapper } from '@/components/screenwrapper';
+// import { Search, Plus, AlertCircle } from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+export default function InventoryScreen() {
+  const insets = useSafeAreaInsets();
+  const [items, setItems] = useState<StationeryItem[]>([]);
+  const [filteredItems, setFilteredItems] = useState<StationeryItem[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const router = useRouter();
 
-export default function HomeScreen() {
+  // Load data whenever the user navigates to this screen
+  useFocusEffect(
+    useCallback(() => {
+      loadInventory();
+    }, [])
+  );
+
+  const loadInventory = async () => {
+    const result = await db.getAllAsync<StationeryItem>('SELECT * FROM items ORDER BY name ASC');
+    setItems(result);
+    setFilteredItems(result);
+  };
+
+  const handleSearch = (text: string) => {
+    setSearchQuery(text);
+    const filtered = items.filter(item => 
+      item.name.toLowerCase().includes(text.toLowerCase()) || 
+      item.category?.toLowerCase().includes(text.toLowerCase())
+    );
+    setFilteredItems(filtered);
+  };
+
+  const renderItem = ({ item }: { item: StationeryItem }) => {
+    const isLowStock = item.quantity <= item.threshold;
+
+    return (
+      <Pressable 
+        style={styles.card} 
+        onPress={() => router.push(`/item/${item.id}`)}
+      >
+        <View style={styles.cardInfo}>
+          <Text style={styles.itemName}>{item.name}</Text>
+          <Text style={styles.itemCategory}>{item.category || 'No Category'}</Text>
+        </View>
+        
+        <View style={styles.cardStatus}>
+          <Text style={[styles.itemQty, isLowStock ? styles.lowStockText : null]}>
+            {item.quantity} units
+          </Text>
+          {/* {isLowStock && <AlertCircle size={16} color="#d32f2f" />} */}
+          <Ionicons name="alert-circle" size={20} color="#d32f2f" style={styles.lowStockIcon} />
+        </View>
+      </Pressable>
+    );
+  };
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+      <View style={styles.container}>
+        {/* Search Bar */}
+        <View style={styles.searchContainer}>
+          <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
+          <TextInput
+            placeholder="Search items..."
+            value={searchQuery}
+            onChangeText={handleSearch}
+            style={styles.searchInput}
+          />
+        </View>
+
+        {/* Item List */}
+        <FlatList
+          data={filteredItems}
+          keyExtractor={(item) => item.id}
+          renderItem={renderItem}
+          ListEmptyComponent={<Text style={styles.emptyText}>No items found.</Text>}
+          contentContainerStyle={{ paddingBottom: 80 }}
+        />
+
+        {/* Floating Action Button to Add Item */}
+        <Pressable 
+          style={[
+            styles.fab, 
+            { bottom: insets.bottom + 40 } // Dynamic position based on system buttons + tab bar height
+          ]}
+          onPress={() => router.push('/item/add')}
+        >
+          <Ionicons name="add" size={30} color="white" />
+        </Pressable>
+      </View>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
+  container: { flex: 1, backgroundColor: '#f5f5f5' },
+  searchContainer: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    backgroundColor: 'white', 
+    margin: 15, 
+    paddingHorizontal: 10, 
+    borderRadius: 10,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+  },
+  searchIcon: { marginRight: 10 },
+  searchInput: { flex: 1, height: 45 },
+  card: { 
+    flexDirection: 'row', 
+    backgroundColor: 'white', 
+    padding: 15, 
+    marginHorizontal: 15, 
+    marginBottom: 10, 
+    borderRadius: 8,
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'space-between'
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
+  cardInfo: { flex: 1 },
+  itemName: { fontSize: 16, fontWeight: '600' },
+  itemCategory: { fontSize: 12, color: '#666', marginTop: 2 },
+  cardStatus: { alignItems: 'flex-end' },
+  itemQty: { fontSize: 15, fontWeight: 'bold' },
+  lowStockText: { color: '#d32f2f' },
+  emptyText: { textAlign: 'center', marginTop: 50, color: '#999' },
+  fab: {
     position: 'absolute',
+    right: 20,
+    bottom: 20,
+    backgroundColor: '#007AFF',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 5,
   },
+  lowStockIcon: {
+    marginTop: 4,
+    marginLeft: 4,
+  }
 });
