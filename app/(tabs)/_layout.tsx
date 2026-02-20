@@ -1,7 +1,7 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
 import { Platform, StatusBar } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons'; 
 
 import { HapticTab } from '@/components/haptic-tab';
@@ -16,6 +16,11 @@ export default function TabLayout() {
   const insets = useSafeAreaInsets();
 
   return (
+    <SafeAreaView style={{ 
+      flex: 1, 
+      
+    }}>
+
     <Tabs
       screenOptions={{
         // Using the primary blue directly for the selected state
@@ -79,5 +84,6 @@ export default function TabLayout() {
         }}
       />
     </Tabs>
+        </SafeAreaView>
   );
 }

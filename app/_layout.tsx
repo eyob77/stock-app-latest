@@ -26,13 +26,12 @@ export default function RootLayout() {
   // Once ready, render the actual app screens
   return (
     <SafeAreaProvider>
-      <SafeAreaView style={{ flex: 1 }}>
+      <StatusBar barStyle="dark-content" />
         <Stack>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="item/add" options={{ title: 'Add New Item' }} />
           <Stack.Screen name="item/[id]" options={{ title: 'Edit Item' }} />
         </Stack>
-      </SafeAreaView>
     </SafeAreaProvider>
   );
 }
