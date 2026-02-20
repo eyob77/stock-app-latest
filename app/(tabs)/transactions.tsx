@@ -1,172 +1,276 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, Pressable, FlatList, Alert, StyleSheet, Platform } from 'react-native';
-import db from '../../database/db';
-import { recordSale } from '../../database/transactions'; // Assuming this handles the isDirty = 1 logic
-import { StationeryItem } from '../../database/schema';
+import React, { useState, useCallback } from 'react';
+import { 
+  View, 
+  Text, 
+  FlatList, 
+  StyleSheet, 
+  Pressable, 
+  Modal, 
+  Dimensions, 
+  Platform 
+} from 'react-native';
+import { useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 
-export default function TransactionsScreen() {
-  const [items, setItems] = useState<StationeryItem[]>([]);
-  const [selectedItem, setSelectedItem] = useState<StationeryItem | null>(null);
-  const [qty, setQty] = useState('');
+// Internal Imports
+import db from '../../database/db';
+import { Transaction } from '../../database/schema';
+import { ScreenWrapper } from '@/components/screenwrapper';
 
-  const loadItems = async () => {
-    const result = await db.getAllAsync<StationeryItem>('SELECT * FROM items ORDER BY name ASC');
-    setItems(result);
+const { width } = Dimensions.get('window');
+
+interface TransactionWithItem extends Transaction {
+  name: string;
+}
+
+export default function TransactionHistoryScreen() {
+  const [history, setHistory] = useState<TransactionWithItem[]>([]);
+  const [selectedTx, setSelectedTx] = useState<TransactionWithItem | null>(null);
+  const [modalVisible, setModalVisible] = useState(false);
+
+  // Load data every time the screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      loadHistory();
+    }, [])
+  );
+
+  const loadHistory = async () => {
+    try {
+      // JOIN with items table to get the name of the stationery
+      const result = await db.getAllAsync<TransactionWithItem>(`
+        SELECT t.*, i.name 
+        FROM transactions t 
+        JOIN items i ON t.itemId = i.id 
+        ORDER BY t.timestamp DESC
+      `);
+      setHistory(result);
+    } catch (error) {
+      console.error("Failed to load transaction history:", error);
+    }
   };
 
-  useEffect(() => { loadItems(); }, []);
+  const renderItem = ({ item }: { item: TransactionWithItem }) => {
+    const date = new Date(item.timestamp);
+    const dayDisplay = date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    const timeDisplay = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-  const handleTransaction = async (type: 'SALE' | 'IMPORT') => {
-    if (!selectedItem || !qty) {
-      Alert.alert("Wait", "Please select an item and enter quantity");
-      return;
-    }
-    
-    const amount = parseInt(qty);
-    if (type === 'SALE' && amount > selectedItem.quantity) {
-      Alert.alert("Error", "Not enough stock!");
-      return;
-    }
-
-    // Adjusting for Import vs Sale
-    // Note: You might need to update your recordSale function to handle imports
-    // or create a separate recordImport function.
-    const result = await recordSale(
-      selectedItem.id, 
-      selectedItem.name, 
-      type === 'SALE' ? amount : -amount, // Negative for recordSale logic usually subtracts
-      selectedItem.price, 
-      selectedItem.quantity, 
-      selectedItem.threshold
+    return (
+      <Pressable 
+        style={styles.historyCard} 
+        onPress={() => {
+          setSelectedTx(item);
+          setModalVisible(true);
+        }}
+      >
+        <View style={styles.leftContent}>
+          <Text style={styles.itemName}>{item.name}</Text>
+          <Text style={styles.timestamp}>{dayDisplay} • {timeDisplay}</Text>
+        </View>
+        
+        <View style={styles.rightContent}>
+          <Text style={[
+            styles.qtyText, 
+            item.qtySold > 0 ? styles.saleColor : styles.importColor
+          ]}>
+            {item.qtySold > 0 ? `-${item.qtySold}` : `+${Math.abs(item.qtySold)}`}
+          </Text>
+          <Ionicons name="chevron-forward" size={16} color="#475569" style={{marginLeft: 8}} />
+        </View>
+      </Pressable>
     );
-
-    if (result.success) {
-      Alert.alert("Success", `${type === 'SALE' ? 'Sold' : 'Restocked'} ${selectedItem.name}`);
-      setQty('');
-      setSelectedItem(null);
-      loadItems();
-    }
   };
 
   return (
       <View style={styles.container}>
-        <Text style={styles.headerTitle}>Inventory Movement</Text>
+        <Text style={styles.header}>Activity Log</Text>
         
-        <Text style={styles.sectionLabel}>1. Select Stationery Item</Text>
         <FlatList
-          data={items}
+          data={history}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContent}
-          renderItem={({ item }) => (
-            <Pressable 
-              style={[styles.itemCard, selectedItem?.id === item.id && styles.selectedCard]} 
-              onPress={() => setSelectedItem(item)}
-            >
-              <Text style={[styles.itemName, selectedItem?.id === item.id && styles.selectedText]}>
-                {item.name}
-              </Text>
-              <Text style={styles.itemStock}>{item.quantity} in stock</Text>
-            </Pressable>
-          )}
+          renderItem={renderItem}
+          contentContainerStyle={styles.listPadding}
+          showsVerticalScrollIndicator={false}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Ionicons name="receipt-outline" size={64} color="#1E293B" />
+              <Text style={styles.emptyText}>No activity recorded yet.</Text>
+            </View>
+          }
         />
 
-        {selectedItem && (
-          <View style={styles.actionArea}>
-            <View style={styles.selectedHeader}>
-                <Ionicons name="pencil" size={18} color="#0a7ea4" />
-                <Text style={styles.selectedTitle}>Managing: {selectedItem.name}</Text>
-            </View>
+        {/* --- DETAIL MODAL (RECEIPT) --- */}
+        <Modal
+          animationType="fade"
+          transparent={true}
+          visible={modalVisible}
+          onRequestClose={() => setModalVisible(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              {/* Receipt Header */}
+              <View style={styles.detailHeader}>
+                <View style={[
+                  styles.iconCircle, 
+                  { backgroundColor: selectedTx?.qtySold! > 0 ? '#334155' : '#064e3b' }
+                ]}>
+                  <Ionicons 
+                    name={selectedTx?.qtySold! > 0 ? "cart" : "download"} 
+                    size={32} 
+                    color={selectedTx?.qtySold! > 0 ? "white" : "#34D399"} 
+                  />
+                </View>
+                <Text style={styles.detailTitle}>
+                  {selectedTx?.qtySold! > 0 ? "Sale Summary" : "Restock Summary"}
+                </Text>
+              </View>
 
-            <TextInput 
-              placeholder="Enter Quantity" 
-              placeholderTextColor="#64748B"
-              keyboardType="numeric" 
-              value={qty}
-              onChangeText={setQty}
-              style={styles.input}
-            />
+              {/* Transaction Data Rows */}
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Stationery Item</Text>
+                <Text style={styles.infoValue}>{selectedTx?.name}</Text>
+              </View>
 
-            <View style={styles.buttonRow}>
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Transaction Day</Text>
+                <Text style={styles.infoValue}>
+                  {selectedTx && new Date(selectedTx.timestamp).toLocaleDateString([], { 
+                    weekday: 'long', 
+                    year: 'numeric', 
+                    month: 'long', 
+                    day: 'numeric' 
+                  })}
+                </Text>
+              </View>
+
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Clock Time</Text>
+                <Text style={styles.infoValue}>
+                  {selectedTx && new Date(selectedTx.timestamp).toLocaleTimeString([], { 
+                    hour: '2-digit', 
+                    minute: '2-digit', 
+                    second: '2-digit' 
+                  })}
+                </Text>
+              </View>
+
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Stock Change</Text>
+                <Text style={[
+                  styles.infoValue, 
+                  selectedTx?.qtySold! > 0 ? styles.saleColor : styles.importColor
+                ]}>
+                  {selectedTx?.qtySold! > 0 
+                    ? `Reduced by ${selectedTx?.qtySold}` 
+                    : `Increased by ${Math.abs(selectedTx?.qtySold!)}`}
+                </Text>
+              </View>
+
+              {selectedTx?.qtySold! > 0 && (
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>Total Revenue</Text>
+                  <Text style={[styles.infoValue, { color: '#38BDF8' }]}>
+                    ${selectedTx?.totalPrice.toFixed(2)}
+                  </Text>
+                </View>
+              )}
+
+              <View style={[styles.infoRow, { borderBottomWidth: 0 }]}>
+                <Text style={styles.infoLabel}>Internal ID</Text>
+                <Text style={styles.idValue}>{selectedTx?.id.substring(0, 18)}...</Text>
+              </View>
+
+              {/* Close Button */}
               <Pressable 
-                style={[styles.actionBtn, styles.saleBtn]} 
-                onPress={() => handleTransaction('SALE')}
+                style={styles.closeBtn} 
+                onPress={() => {
+                    setModalVisible(false);
+                    setSelectedTx(null);
+                }}
               >
-                <Ionicons name="cart-outline" size={20} color="white" />
-                <Text style={styles.btnText}>Record Sale</Text>
-              </Pressable>
-
-              <Pressable 
-                style={[styles.actionBtn, styles.importBtn]} 
-                onPress={() => handleTransaction('IMPORT')}
-              >
-                <Ionicons name="add-circle-outline" size={20} color="white" />
-                <Text style={styles.btnText}>Import</Text>
+                <Text style={styles.closeBtnText}>Done</Text>
               </Pressable>
             </View>
           </View>
-        )}
+        </Modal>
       </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5', padding: 20 },
-  headerTitle: { fontSize: 22, fontWeight: 'bold', color: '#11181C', marginBottom: 20 },
-  sectionLabel: { fontSize: 14, color: '#94A3B8', marginBottom: 12, fontWeight: '600', textTransform: 'uppercase' },
-  listContent: { paddingBottom: 20 },
-  itemCard: { 
+  container: { flex: 1, paddingHorizontal: 20 },
+  header: { 
+    fontSize: 26, 
+    fontWeight: '900', 
+    color: '#0F172A', 
+    marginTop: 20, 
+    marginBottom: 10 
+  },
+  listPadding: { paddingBottom: 140, paddingTop: 10 },
+  historyCard: {
+    backgroundColor: '#F8FAFC',
+    padding: 18,
+    borderRadius: 22,
+    marginBottom: 12,
     flexDirection: 'row',
-    backgroundColor: 'white', 
-    padding: 15, 
-    borderRadius: 8, 
-    marginBottom: 10,
-    alignItems: 'center',
     justifyContent: 'space-between',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-  },
-  selectedCard: { borderColor: '#0a7ea4', borderWidth: 2, backgroundColor: '#e8f4fc' },
-  itemName: { fontSize: 16, fontWeight: '600', color: '#11181C' },
-  selectedText: { color: '#0a7ea4' },
-  itemStock: { fontSize: 13, color: '#666', marginTop: 4 },
-  actionArea: { 
-    marginTop: 'auto', 
-    backgroundColor: 'white', 
-    padding: 20, 
-    borderRadius: 12,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    marginBottom: 80 // Space for the floating tab bar
-  },
-  selectedHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 15 },
-  selectedTitle: { color: '#11181C', fontSize: 16, fontWeight: '700', marginLeft: 8 },
-  input: { 
-    backgroundColor: '#fff', 
-    borderRadius: 12, 
-    padding: 15, 
-    color: '#11181C', 
-    fontSize: 18, 
-    marginBottom: 20,
-    textAlign: 'center',
+    alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#ccc'
+    borderColor: '#334155',
   },
-  buttonRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  actionBtn: { 
-    flex: 0.48, 
-    flexDirection: 'row', 
-    padding: 15, 
-    borderRadius: 12, 
+  leftContent: { flex: 1 },
+  itemName: { color: '#0F172A', fontSize: 17, fontWeight: '700' },
+  timestamp: { color: '#64748B', fontSize: 13, marginTop: 4 },
+  rightContent: { flexDirection: 'row', alignItems: 'center' },
+  qtyText: { fontSize: 17, fontWeight: '800' },
+  saleColor: { color: '#F87171' },
+  importColor: { color: '#34D399' },
+  
+  // Empty State
+  emptyContainer: { alignItems: 'center', marginTop: 100 },
+  emptyText: { color: '#475569', fontSize: 16, marginTop: 15 },
+
+  // Detail Modal Styles
+  modalOverlay: { 
+    flex: 1, 
+    backgroundColor: 'rgba(0,0,0,0.85)', 
+    justifyContent: 'center', 
+    padding: 25 
+  },
+  modalContent: { 
+    backgroundColor: '#F8FAFC', 
+    borderRadius: 15, 
+    padding: 25, 
+    borderWidth: 1, 
+    borderColor: '#334155' 
+  },
+  detailHeader: { alignItems: 'center', marginBottom: 25 },
+  iconCircle: { 
+    width: 64, 
+    height: 64, 
+    borderRadius: 32, 
+    justifyContent: 'center', 
     alignItems: 'center', 
-    justifyContent: 'center' 
+    marginBottom: 12 
   },
-  saleBtn: { backgroundColor: '#EF4444' },
-  importBtn: { backgroundColor: '#10B981' },
-  btnText: { color: 'white', fontWeight: 'bold', marginLeft: 8 }
+  detailTitle: { color: 'white', fontSize: 22, fontWeight: '900' },
+  infoRow: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    paddingVertical: 14, 
+    borderBottomWidth: 1, 
+    borderBottomColor: '#334155' 
+  },
+  infoLabel: { color: '#94A3B8', fontSize: 14, fontWeight: '500' },
+  infoValue: { color: '#0F172A', fontSize: 15, fontWeight: '700', textAlign: 'right', flex: 1, marginLeft: 20 },
+  idValue: { color: '#475569', fontSize: 11, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' },
+  closeBtn: { 
+    backgroundColor: '#2563EB', 
+    marginTop: 25, 
+    padding: 10, 
+    borderRadius: 9, 
+    alignItems: 'center' 
+  },
+  closeBtnText: { color: 'white', fontWeight: '900', fontSize: 16 },
 });
