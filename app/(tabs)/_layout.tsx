@@ -20,6 +20,13 @@ export default function TabLayout() {
       flex: 1, 
       
     }}>
+      {/* make the status bar white with dark content as requested */}
+      <StatusBar
+        barStyle="dark-content"
+        backgroundColor="#F8FAFC"
+        // ensure Android actually applies the background color
+        translucent={false}
+      />
 
       <Tabs
         screenOptions={{
@@ -34,13 +41,10 @@ export default function TabLayout() {
             left: 20,
             right: 20,
             height: 64,
-            borderRadius: 15,
-            backgroundColor: isDark ? '#1C1C1E' : 'white',
+            backgroundColor: "white",
             // Minimalist border line instead of shadow
             borderTopWidth: 1,
-            borderLeftWidth: 1,
-            borderRightWidth: 1,
-            borderColor: isDark ? '#334155' : '#E2E8F0',
+            borderColor:"#2563EB",
             // Explicitly removing shadows for both platforms
             elevation: 0,
             shadowOpacity: 0,
@@ -55,7 +59,6 @@ export default function TabLayout() {
             marginBottom: 4,
           },
         }}>
-        <StatusBar barStyle="dark-content" />
 
 
         <Tabs.Screen
