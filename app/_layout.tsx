@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Stack } from 'expo-router';
-import { View, ActivityIndicator, StatusBar } from 'react-native';
+import { View, ActivityIndicator} from 'react-native';
 import { initializeDatabase } from '../database/db';
-import { SafeAreaProvider,SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as NavigationBar from 'expo-navigation-bar';
 import { Platform } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
+
 
 export default function RootLayout() {
   const [dbReady, setDbReady] = useState(false);
@@ -35,6 +37,12 @@ export default function RootLayout() {
   // Once ready, render the actual app screens
   return (
     <SafeAreaProvider>
+       <StatusBar
+        style="dark"
+        backgroundColor="#F8FAFC"
+        // ensure Android actually applies the background color
+        translucent={false}
+      />
 
         <Stack>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
